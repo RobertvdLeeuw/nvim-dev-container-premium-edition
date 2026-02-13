@@ -43,11 +43,77 @@ local function default_terminal_handler(command)
   vim.fn.termopen(command)
 end
 
+-- Project markers to look for when determining project root
+local default_project_markers = {
+  ".git", ".hg", ".bzr", ".svn", "_darcs",  -- VCS
+  "pyproject.toml", "setup.py", "requirements.txt", "Pipfile",  -- Python
+  "Cargo.toml", "Cargo.lock",  -- Rust  
+  "package.json", "yarn.lock", "package-lock.json",  -- Node.js
+  "flake.nix", "default.nix", "shell.nix",  -- Nix
+  "Makefile", "CMakeLists.txt", "meson.build",  -- Build systems
+  "go.mod", "go.sum",  -- Go
+  "composer.json",  -- PHP
+  "pom.xml", "build.gradle", "build.gradle.kts",  -- Java/JVM
+  ".devcontainer.json", ".devcontainer",  -- Devcontainer itself
+}
+
+-- Find project root by recursively searching up for project markers
+local function find_project_root(start_path, markers)
+  markers = markers or default_project_markers
+  start_path = start_path or (vim.api.nvim_buf_get_name(0) ~= "" and vim.fn.expand("%:p:h") or vim.loop.cwd())
+  
+  local function check_directory(dir)
+    for _, marker in ipairs(markers) do
+      local marker_path = dir .. require("devcontainer.internal.utils").path_sep .. marker
+      local stat = vim.loop.fs_stat(marker_path)
+      if stat then
+        return dir  -- Found a project marker
+      end
+    end
+    return nil
+  end
+  
+  local current_dir = vim.fn.resolve(start_path)
+  local last_dir = nil
+  
+  -- Keep going up until we find a marker or reach the root
+  while current_dir and current_dir ~= last_dir do
+    local project_root = check_directory(current_dir)
+    if project_root then
+      return project_root
+    end
+    
+    last_dir = current_dir
+    current_dir = vim.fn.fnamemodify(current_dir, ":h")
+    
+    -- Stop if we've reached the root directory
+    if current_dir == "/" or current_dir:match("^[A-Z]:\\?$") then
+      break
+    end
+  end
+  
+  return nil  -- No project root found
+end
+
 local function workspace_folder_provider()
+  -- First try to find a proper project root
+  local project_root = find_project_root()
+  if project_root then
+    return project_root
+  end
+  
+  -- Fallback to LSP workspace folders or cwd
   return vim.lsp.buf.list_workspace_folders()[1] or vim.loop.cwd()
 end
 
 local function default_config_search_start()
+  -- Start config search from current file's directory or project root
+  local current_file = vim.api.nvim_buf_get_name(0)
+  if current_file ~= "" then
+    local file_dir = vim.fn.expand("%:p:h")
+    local project_root = find_project_root(file_dir)
+    return project_root or file_dir
+  end
   return vim.loop.cwd()
 end
 
@@ -246,5 +312,22 @@ M.container_env = {}
 ---NOTE: This supports "${containerEnv:VAR_NAME}" syntax to use variables from container
 ---@type table[string, string]
 M.remote_env = {}
+
+---List of file/directory patterns to look for when determining project root
+---The plugin will only create devcontainers when one of these markers is found
+---@type string[]
+M.project_markers = default_project_markers
+
+---Function to find project root starting from a given path
+---@param start_path? string Path to start searching from (defaults to current file's directory)
+---@param markers? string[] List of project markers to look for (defaults to M.project_markers)
+---@return string? Project root path or nil if no project found
+M.find_project_root = find_project_root
+
+---Function to check if the current location is within a project
+---@return boolean true if we're in a project, false otherwise
+function M.is_in_project()
+  return find_project_root() ~= nil
+end
 
 return M
