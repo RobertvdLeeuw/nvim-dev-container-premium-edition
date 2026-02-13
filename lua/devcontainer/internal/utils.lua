@@ -19,9 +19,17 @@ function M.add_constructor(table)
 end
 
 function M.get_image_cache_tag()
-  local tag = plugin_config.workspace_folder_provider()
-  tag = string.gsub(tag, "[%/%s%-%\\%:]", "")
-  return "nvim_dev_container_" .. string.lower(tag)
+  local workspace_folder = plugin_config.workspace_folder_provider()
+  -- Extract just the project directory name instead of the full path
+  local project_name = workspace_folder:match("([^/\\]+)$") or workspace_folder
+  -- Clean the project name - keep only alphanumeric characters and underscores
+  project_name = string.gsub(project_name, "[^%w_]", "")
+  project_name = string.lower(project_name)
+  -- Ensure we have a valid name
+  if project_name == "" or project_name == "." then
+    project_name = "project"
+  end
+  return "nvim_dev_container_" .. project_name
 end
 
 return M
