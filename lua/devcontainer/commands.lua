@@ -676,18 +676,37 @@ local function run_image_with_cache(data, image_id, attach, add_neovim, on_succe
     end)
   end
   local tag = u.get_image_cache_tag()
-  container_runtime.image_contains(tag, image_id, {
-    on_success = function(contains)
-      if contains then
-        run_and_attach(tag)
+  
+  -- For pre-built images (not SHA256 docker build IDs), ensure consistent naming
+  if not image_id:match("^sha256:") and image_id ~= tag then
+    -- Tag the user's image with our cache tag for consistent access
+    local runtime = require("devcontainer.config").container_runtime
+    require("devcontainer.internal.executor").run_command(runtime, {
+      args = { "tag", image_id, tag }
+    }, function(code, _)
+      if code == 0 then
+        vim.notify("Tagged " .. image_id .. " as " .. tag .. " for consistent access")
+        run_and_attach(tag)  -- Now consistently uses tagged name
       else
+        vim.notify("Could not tag image " .. image_id .. " with " .. tag .. ", using original image", vim.log.levels.WARN)
         run_and_attach(image_id)
       end
-    end,
-    on_fail = function()
-      run_and_attach(image_id)
-    end,
-  })
+    end)
+  else
+    -- For built images, use existing logic
+    container_runtime.image_contains(tag, image_id, {
+      on_success = function(contains)
+        if contains then
+          run_and_attach(tag)
+        else
+          run_and_attach(image_id)
+        end
+      end,
+      on_fail = function()
+        run_and_attach(image_id)
+      end,
+    })
+  end
 end
 
 local function spawn_docker_build_and_run(data, on_success, add_neovim, attach)
