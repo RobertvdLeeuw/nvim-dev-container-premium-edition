@@ -19,7 +19,12 @@ function M.add_constructor(table)
 end
 
 function M.get_image_cache_tag()
-  local workspace_folder = plugin_config.workspace_folder_provider()
+  local plugin_config = require("devcontainer.config")
+  
+  -- Use project root if available, otherwise fall back to workspace folder
+  local project_root = plugin_config.find_project_root()
+  local workspace_folder = project_root or plugin_config.workspace_folder_provider()
+  
   -- Extract just the project directory name instead of the full path
   local project_name = workspace_folder:match("([^/\\]+)$") or workspace_folder
   -- Clean the project name - keep only alphanumeric characters and underscores
