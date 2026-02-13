@@ -441,6 +441,12 @@ end
 function M.docker_image_run(callback)
   vim.validate("callback", callback, { "function", "nil" })
 
+  -- Check if we're in a project before attempting to create a devcontainer
+  if not plugin_config.is_in_project() then
+    vim.notify("Not in a project directory. Devcontainer creation skipped.", vim.log.levels.WARN)
+    return
+  end
+
   local on_success = callback
     or function(config, container_id)
       vim.notify(
@@ -675,25 +681,29 @@ local function run_image_with_cache(data, image_id, attach, add_neovim, on_succe
       })
     end)
   end
+  
   local tag = u.get_image_cache_tag()
   
-  -- For pre-built images (not SHA256 docker build IDs), ensure consistent naming
+  -- For pre-built images (not SHA256 docker build IDs), we need to ensure consistent naming
+  -- by creating a tagged version that matches our cache naming scheme
   if not image_id:match("^sha256:") and image_id ~= tag then
-    -- Tag the user's image with our cache tag for consistent access
+    -- This is a pre-built image specified by the user (e.g., "python-dev:latest")
+    -- Tag it with our cache tag for consistent access throughout the workflow
     local runtime = require("devcontainer.config").container_runtime
+    local tag_command = { runtime, "tag", image_id, tag }
     require("devcontainer.internal.executor").run_command(runtime, {
       args = { "tag", image_id, tag }
     }, function(code, _)
       if code == 0 then
         vim.notify("Tagged " .. image_id .. " as " .. tag .. " for consistent access")
-        run_and_attach(tag)  -- Now consistently uses tagged name
+        run_and_attach(tag)
       else
         vim.notify("Could not tag image " .. image_id .. " with " .. tag .. ", using original image", vim.log.levels.WARN)
         run_and_attach(image_id)
       end
     end)
   else
-    -- For built images, use existing logic
+    -- For built images or already properly tagged images, use the existing logic
     container_runtime.image_contains(tag, image_id, {
       on_success = function(contains)
         if contains then
@@ -752,6 +762,12 @@ end
 function M.docker_build_and_run(callback)
   vim.validate("callback", callback, { "function", "nil" })
 
+  -- Check if we're in a project before attempting to create a devcontainer
+  if not plugin_config.is_in_project() then
+    vim.notify("Not in a project directory. Devcontainer creation skipped.", vim.log.levels.WARN)
+    return
+  end
+
   execute_docker_build_and_run(callback, false)
 end
 
@@ -761,6 +777,12 @@ end
 ---@usage `require("devcontainer.commands").docker_build_run_and_attach()`
 function M.docker_build_run_and_attach(callback)
   vim.validate("callback", callback, { "function", "nil" })
+
+  -- Check if we're in a project before attempting to create a devcontainer
+  if not plugin_config.is_in_project() then
+    vim.notify("Not in a project directory. Devcontainer creation skipped.", vim.log.levels.WARN)
+    return
+  end
 
   execute_docker_build_and_run(callback, true)
 end
@@ -774,6 +796,13 @@ end
 ---@usage `require("devcontainer.commands").start_auto()`
 function M.start_auto(callback, attach)
   vim.validate("callback", callback, { "function", "nil" })
+
+  -- Check if we're in a project before attempting to create a devcontainer
+  if not plugin_config.is_in_project() then
+    vim.notify("Not in a project directory. Devcontainer creation skipped.", vim.log.levels.WARN)
+    vim.notify("Project markers searched: " .. table.concat(plugin_config.project_markers, ", "), vim.log.levels.INFO)
+    return
+  end
 
   local on_success = callback
     or function(config)
